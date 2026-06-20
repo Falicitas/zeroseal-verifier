@@ -1,0 +1,15 @@
+#!/bin/bash
+set -eux
+
+# 补全 systemd-networkd 完整 enable(socket + dbus 别名 + network-generator)
+systemctl enable systemd-networkd.service
+
+# default.target 设为 multi-user(minimal rootfs 无图形栈)
+systemctl set-default multi-user.target
+
+# enable 自定义服务(此时 ExtraTrees 应已放入这些 .service)
+systemctl enable ssh.service || echo "ssh enable skipped"
+systemctl enable gateway.service || echo "gateway enable skipped"
+systemctl enable netdiag.service || echo "netdiag enable skipped"
+
+echo "=== postinst.chroot done, default = $(systemctl get-default) ==="

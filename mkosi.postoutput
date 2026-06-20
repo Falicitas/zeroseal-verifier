@@ -1,0 +1,22 @@
+#!/bin/bash
+set -eux
+
+ROOTFS_DIR="$OUTPUTDIR/zeroseal"
+
+# 清掉 rootfs 里的 /boot(内核/initrd 走 grub 单独管,不进 erofs)
+rm -rf "$ROOTFS_DIR/boot"/*
+
+# 做 erofs(-T 0 时间归零)
+mkfs.erofs -T 0 \
+  -U 11111111-2222-3333-4444-555555555555 \
+  -L zeroseal_root \
+  "$OUTPUTDIR/zeroseal.erofs" \
+  "$ROOTFS_DIR"
+
+# 做 verity(固定 UUID + salt)
+veritysetup format \
+  "$OUTPUTDIR/zeroseal.erofs" \
+  "$OUTPUTDIR/zeroseal.verity" \
+  --uuid=66666666-7777-8888-9999-aaaaaaaaaaaa \
+  --salt=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --root-hash-file="$OUTPUTDIR/zeroseal.roothash"
