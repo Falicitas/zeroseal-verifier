@@ -8,7 +8,6 @@ systemctl enable systemd-networkd.service
 systemctl set-default multi-user.target
 
 # enable 自定义服务(此时 ExtraTrees 应已放入这些 .service)
-systemctl enable ssh.service || echo "ssh enable skipped"
 systemctl enable gateway.service || echo "gateway enable skipped"
 systemctl enable netdiag.service || echo "netdiag enable skipped"
 
