@@ -3,6 +3,7 @@ Description=ZeroSeal gateway
 
 [Service]
 ExecStart=/usr/local/bin/gateway
+Environment=GATEWAY_ADDR=:443
 Restart=on-failure
 RestartSec=2
 

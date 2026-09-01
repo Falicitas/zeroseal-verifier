@@ -1,2 +1,18 @@
 mkosi.tools.tar.gz
 mkosi.tools/
+
+# verify.sh 的产物：gateway 源码是 clone 来的，二进制是编出来的。
+# 二进制不能进 git —— 它必须由验证者自己从源码复现。
+gateway-src/
+overlay/usr/local/bin/gateway
+
+# mkosi / ukify 的构建产物
+zeroseal
+zeroseal.efi
+zeroseal.erofs
+zeroseal.verity
+zeroseal.roothash
+zeroseal.initrd
+zeroseal.vmlinuz
+zeroseal-shimx64.efi
+zeroseal-grubx64.efi

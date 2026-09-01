@@ -1,15 +1,1 @@
-[Unit]
-Description=Network diagnostics dump to diag disk
-After=multi-user.target systemd-networkd.service
-Wants=systemd-networkd.service
-
-[Service]
-Type=oneshot
-ExecStartPre=/bin/sleep 20
-ExecStart=/usr/local/bin/netdiag.sh
-StandardOutput=journal+console
-StandardError=journal+console
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
+../netdiag.service

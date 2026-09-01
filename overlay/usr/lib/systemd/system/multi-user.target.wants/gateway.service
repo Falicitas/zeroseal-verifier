@@ -1,10 +1,1 @@
-[Unit]
-Description=ZeroSeal gateway
-
-[Service]
-ExecStart=/usr/local/bin/gateway
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
+../gateway.service
