@@ -1,24 +1,40 @@
 #!/bin/bash
 # verify.sh — verifier 唯一入口
 #
-# 从公开材料重建整条链，逐项跟 release.json 里声明的值比对：
+#   ./verify.sh            验最新发布的那一版
+#   ./verify.sh v0.2.0     验指定版本
+#
+# 从公开材料重建整条链，逐项跟 measurements.jsonl 里那一行声明的值比对：
 #   gateway 二进制 → rootfs(erofs+verity) → roothash → UKI → RTMR1/RTMR2
 #
-# 任何一项对不上就退出。全部对上，说明 release.json 里那份声明是可复现的，
-# 剩下的是拿 RTMR1/RTMR2 跟 prover 的 quote 比（见 README 的 TODO）。
+# 任何一项对不上就退出。全部对上，说明那一行声明是可复现的，剩下的是拿
+# RTMR1/RTMR2 跟 prover 的 quote 比（见 README 的 TODO）。
 set -e
 cd "$(dirname "$0")"
 
-R=release.json
-[ -f "$R" ] || { echo "缺 $R"; exit 1; }
-j() { jq -r ".$1" "$R"; }
+# measurements.jsonl 一行一次发布,只追加不改既有行。所以它同时是「验哪一版」
+# 的输入和一份公开的历史记录 —— git 上每次发布的 diff 就是「加了一行」。
+M=measurements.jsonl
+[ -f "$M" ] || { echo "缺 $M —— 这个仓库还没有发布过任何版本"; exit 1; }
+
+if [ -n "${1:-}" ]; then
+  # 只追加不去重,所以 version 理论上可能重复。重复了就说明有人发重了,
+  # 那种情况下随便挑一条都是错的,直接停。
+  N=$(jq -s --arg v "$1" 'map(select(.version==$v)) | length' "$M")
+  [ "$N" = 1 ] \
+    || { echo "$M 里 version=$1 有 $N 条,应为 1"; exit 1; }
+  ROW=$(jq -c --arg v "$1" 'select(.version==$v)' "$M")
+else
+  ROW=$(tail -n1 "$M")
+fi
+j() { printf '%s' "$ROW" | jq -r ".$1"; }
 
 VERSION=$(j version)
 DATA=$(j verity_data_dev)
 HASH=$(j verity_hash_dev)
 STUB=/usr/lib/systemd/boot/efi/linuxx64.efi.stub
 
-echo "=== 验证 $VERSION ==="
+echo "=== 验证 ${VERSION}（发布于 $(j released_at)）==="
 
 echo "=== [0/5] 准备 tools 树 ==="
 # tools 树是 330 MB 的 Ubuntu 包快照,没进 git —— mkosi.tools.manifest 里
