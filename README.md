@@ -8,52 +8,75 @@ ZeroSeal 的 TDX 远程证明验证器 / A verifier for ZeroSeal's TDX remote at
 
 ## 中文
 
-给定 prover 的 quote,在一台普通(非 TDX)Linux 机器上从公开材料重新算出期望的 RTMR1 和 RTMR2,跟 quote 里的值逐字节比对。不需要 TDX 硬件。
+### 这是什么
+
+这个仓库包含一个 shell 脚本与脚本所用的一切配方，旨在让验证方在不需要信任，即零信任下确认 zeroseal 提供的中转服务正在运行的是[这套程序（以下简称 RPg）](https://github.com/Falicitas/zeroseal-gateway)，以及确认运行程序的完整 Linux OS。在你的 Linux 环境下运行 `./verify.sh`，将生成一个崭新的未挂载的 Linux OS，这个 OS 涵盖 RPg。最后我们利用可信执行环境（TEE）的能力，在零信任下让验证方确认 zeroseal 目前对外提供的服务的运行中的 OS 正是验证方自己独立手动生成的 OS。
+
+注：你的 Linux 环境不需要使用 TDX 硬件，具体推荐环境如下：
+
+- Ubuntu 24.04 LTS（noble）、x86_64。被验的镜像本身就是 noble，宿主同版本最省事
+- 全新的云实例或干净容器。已有环境也能跑，只是 PATH 里若有自己编的 mkosi 或 ukify
+  会被优先取用，那会算出不一样的结果
+- 20 GB 空闲磁盘。tools 树解开 1.3 GB，mkosi 产出的 rootfs、erofs、verity 合计约
+  2 GB，Go 工具链与编译缓存再占 1 GB
+- 2 vCPU / 4 GB 内存
+- 能连外网：Ubuntu 官方源与 snapshot 服务、GitHub、Go module proxy
+- root。mkosi 要组 rootfs，而 Ubuntu 24.04 默认关掉了非特权 user namespace
+  （`kernel.apparmor_restrict_unprivileged_userns=1`），用 root 最省事
 
 ### 验证什么
 
-RTMR1:shim、grub、kernel 三个 PE 的 Authenticode 度量(SHA384),按 RTMR extend 规则依次算进 RTMR1。
+RTMR1：shim、grub、kernel 三个 PE 的 Authenticode 度量（SHA384），按 RTMR extend 规则依次算进去。
 
-RTMR2:五个 CCEL 事件依次 extend——
+RTMR2：五个 CCEL 事件依次 extend ——
 
 - MokList → 从 shim 的 `.vendor_cert` 重建
 - MokListX / MokListTrusted → MOK 未 enroll 时的固定默认值
 - LoadOptions → cmdline 转 UTF-16-LE
 - initrd → initrd 文件的 sha384
 
-这两条都从公开的 mkosi 配方 + 构建脚本 + `rtmr1.py` / `rtmr2.py` 算出来。
+两条都从公开的 mkosi 配方 + 构建脚本 + `rtmr1.py` / `rtmr2.py` 算出来。
 
 ### 不验证什么
 
-MRTD 和 RTMR0 复现不了。MRTD 要拿 TDVF 固件(`.fd`)按页重算,RTMR0 测的是固件配置和 TDVF 内部数据,都在 `.fd` 里。阿里云不提供 `.fd`,这两个值的参考只能走阿里云的远程证明服务(appraisal),或者从一台已知干净的实例 pin 值下来。它们不在这个离线验证器的覆盖范围内。
+MRTD 和 RTMR0。MRTD 要拿 TDVF 固件（`.fd`）按页重算，RTMR0 测的是固件配置和 TDVF 内部数据，都在 `.fd` 里。阿里云不提供 `.fd`，这两个值的参考只能来自阿里云的远程证明服务（appraisal），或者从一台已知干净的实例 pin 下来。
 
-`measurements.jsonl` 里仍然记着这两个值,但那是部署当时从 quote 里读到的观测值,
-不是能独立重算的结论 —— 跟 RTMR1/RTMR2 性质不同,别混为一谈。
+`measurements.jsonl` 里记了这两个值，但那是部署当时从 quote 里读到的，谁都重算不出来。
 
-信任决策的分工:Intel 签名链证明是真 TDX 硬件 + TCB 最新(标准 Intel QVL 能验),RTMR1/RTMR2 证明 rootfs 和启动链是声明的那个可复现构建。固件那层(MRTD/RTMR0)在 TCB 里。
+谁证明什么：Intel 签名链证明这是真 TDX 硬件、TCB 最新，标准 Intel QVL 就能验；RTMR1/RTMR2 证明 rootfs 和启动链是声明的那个可复现构建。固件那层在 TCB 里。
 
 ### 怎么跑
 
-前置:
+前置：
 
-- 一个装好 mkosi 的 venv,默认在 `~/mkosi-venv`
-- `systemd-ukify`(verify.sh 用它的 stub)
-- `git`、`jq`,以及被验那一行里 `go_version` 指定的那个 Go 版本(版本不同编出来的
-  二进制就不同,roothash 跟着不同;verify.sh 会先检查再往下走)
-- tools 树 `mkosi.tools.tar.gz`(330M,没进 git)。可以自己从本仓库 Release 下好放到根目录,
-  也可以直接跑 verify.sh —— 缺文件时它会问一句要不要替你下。两种方式都会按
-  `tools_sha256` 校验之后才解压
+```bash
+sudo apt update
+sudo apt install -y git jq curl python3-venv python3-pefile systemd-ukify systemd-boot-efi
+
+# mkosi 装进 venv，verify.sh 默认找 ~/mkosi-venv
+python3 -m venv ~/mkosi-venv
+~/mkosi-venv/bin/pip install mkosi==<版本>
+
+# Go 版本要跟被验那一行的 go_version 一致，对不上 verify.sh 直接停
+curl -fL https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
+export PATH=$PATH:/usr/local/go/bin
+```
+
+`veritysetup` 和 `mkfs.erofs` 不用装，在 tools 树里。
+
+tools 树 `mkosi.tools.tar.gz`（330M）没进 git。自己从本仓库 Release 下好放到根目录，
+或者直接跑 verify.sh，缺文件时它会问要不要替你下。两种都会按 `tools_sha256` 校验后
+才解压。
 
 ```bash
 ./verify.sh            # 验最新发布的那一版
 ./verify.sh v0.2.0     # 验指定版本
 ```
 
-被验的版本来自 `measurements.jsonl` —— 一行一次发布,只追加,不改既有行。
-所以它同时是「验哪一版」的输入和一份公开的历史记录:git 上每次发布的 diff
-就是「加了一行」,任何对既有行的改动都会在 diff 里暴露。
+版本来自 `measurements.jsonl`，一行一次发布，只追加。所以每次发布的 git diff
+就是加一行，改既有行会在 diff 里露出来。
 
-verify.sh 逐项重建并跟那一行声明的值比对,任何一项对不上就退出:
+verify.sh 逐项重建，跟那一行声明的值比，对不上就退出：
 
 | 步骤 | 比对什么 |
 |---|---|
@@ -61,39 +84,39 @@ verify.sh 逐项重建并跟那一行声明的值比对,任何一项对不上就
 | 复现 shim / grub | `shim_sha256` / `grub_sha256` |
 | mkosi 复现构建 | `roothash` |
 | 复现 UKI | `uki_sha256` |
-| 算 RTMR1 / RTMR2 | 打印,留给下一步跟 quote 比 |
+| 算 RTMR1 / RTMR2 | 打印，留给下一步跟 quote 比 |
 
-gateway 二进制**不进这个仓库**——它由 verify.sh 从 `gateway_repo` 的 `gateway_commit`
-现场编译。二进制进了仓库就等于让人信我们,而这里的整件事是不必信。
+gateway 二进制不进这个仓库，由 verify.sh 从 `gateway_repo` 的 `gateway_commit`
+现场编。放个二进制进来就等于让你信我们。
 
 ### 本部署常量
 
-这个验证器复现的期望值只对某一套特定 ZeroSeal 部署成立。以下是写死的部署常量,换部署要改:
+下面这些只对某一套特定 ZeroSeal 部署成立，换部署要改：
 
-- 被验那一行里的全部字段——盘的 by-id 路径(它们进 cmdline,因而进 RTMR2)、
+- 被验那一行里的全部字段——盘的 by-id 路径（进 cmdline，因而进 RTMR2）、
   gateway 的 commit 与期望 sha256、Go 版本、tools 树、各项期望度量值
-- MOK 未 enroll(rtmr2.py 用全零 sha256 的 MokListX 和 `sha384(0x01)` 的 MokListTrusted;别的实例上 enroll 过 MOK,这两段会变)
-- stub 版本(systemd-ukify 的 `linuxx64.efi.stub`,版本不同 UKI 不一致)
+- MOK 未 enroll（rtmr2.py 用全零 sha256 的 MokListX 和 `sha384(0x01)` 的 MokListTrusted；别的实例上 enroll 过 MOK，这两段会变）
+- stub 版本（systemd-ukify 的 `linuxx64.efi.stub`，版本不同 UKI 不一致）
 
-clone 下来直接跑、算出的 RTMR 跟某个 quote 对不上,先核对上面三个是否一致,再判断是不是 quote 的问题。
+clone 下来直接跑、RTMR 跟某个 quote 对不上，先核对这三项，再怀疑 quote。
 
 ### 仓库文件
 
 - `mkosi.conf` / `mkosi.postinst.chroot` / `mkosi.postoutput` — mkosi 构建配方
-- `mkosi.tools.manifest` — tools 树的包清单(`snapshot: null`,光这份复现不出 bit-identical,实际版本固定在 tools 树里,所以 tools 要单独发)
-- `measurements.jsonl` — 每次发布追加一行:gateway 的 repo/commit/期望 sha256、
+- `mkosi.tools.manifest` — tools 树的包清单（`snapshot: null`，光靠它复现不出 bit-identical 的树，版本固定在树里，所以 tools 单独发）
+- `measurements.jsonl` — 每次发布追加一行：gateway 的 repo/commit/期望 sha256、
   Go 版本与构建命令、tools 树的 URL 与哈希、盘的 by-id 路径、期望的
-  roothash/UKI/shim/grub,以及部署当时读到的 MRTD 与 RTMR0-3。
+  roothash/UKI/shim/grub，以及部署当时读到的 MRTD 与 RTMR0-3。
   verify.sh 全部从这里读
-- `overlay/` — rootfs overlay,跟实际部署逐字节一致。镜像里已经没有 sshd,
-  所以不再有不能公开的东西;唯一不在这里的是 gateway 二进制(由 verify.sh 编)
+- `overlay/` — rootfs overlay，跟实际部署逐字节一致。镜像里没有 sshd，所以没有
+  不能公开的东西；唯一不在这里的是 gateway 二进制，由 verify.sh 编
 - `build-grub-shim.sh` — 复现 shim/grub
 - `verify.sh` — 验证入口
 - `rtmr1.py` / `rtmr2.py` — RTMR1 / RTMR2 重算脚本
 
 ### TODO
 
-- verify-quote:Intel 签名链验证(PCK 证书链 → Intel root CA)+ RTMR 逐项比对。MRTD/RTMR0 的处理(信阿里云 appraisal 还是参考实例 pin 值)在这一步定。
+- verify-quote：Intel 签名链验证（PCK 证书链 → Intel root CA）+ RTMR 逐项比对。MRTD/RTMR0 怎么处理（信阿里云 appraisal 还是 pin 参考实例）在这一步定。
 
 ---
 
