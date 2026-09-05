@@ -16,4 +16,5 @@ zeroseal.initrd
 zeroseal.vmlinuz
 zeroseal-shimx64.efi
 zeroseal-grubx64.efi
+zeroseal-linuxx64.efi.stub
 mkosi.tools.tar.gz.json

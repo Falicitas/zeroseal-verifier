@@ -3,7 +3,7 @@
 # 产物(deploy 当 bootloader、verify 当原材料): ./zeroseal-shimx64.efi  ./zeroseal-grubx64.efi
 set -e
 cd "$(dirname "$0")"
-SNAPSHOT=20260430T230000Z          # 必须与生产 mkosi.conf 的 Snapshot 完全一致
+SNAPSHOT=20260901T000000Z          # 必须与生产 mkosi.conf 的 Snapshot 完全一致
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 
 cat > "$WORK/mkosi.conf" << EOF

@@ -32,7 +32,7 @@ j() { printf '%s' "$ROW" | jq -r ".$1"; }
 VERSION=$(j version)
 DATA=$(j verity_data_dev)
 HASH=$(j verity_hash_dev)
-STUB=/usr/lib/systemd/boot/efi/linuxx64.efi.stub
+STUB=./zeroseal-linuxx64.efi.stub
 
 echo "=== 验证 ${VERSION}（发布于 $(j released_at)）==="
 
@@ -115,7 +115,7 @@ GOT=$(sha256sum overlay/usr/local/bin/gateway | cut -d' ' -f1)
   || { echo "gateway sha256 不符："; echo "  编出来：$GOT"; echo "  声明的：$(j gateway_sha256)"; exit 1; }
 echo "gateway: $GOT ✓"
 
-echo "=== [2/5] 复现 shim/grub ==="
+echo "=== [2/5] 复现 shim / grub / stub ==="
 ./build-grub-shim.sh
 for n in shim grub; do
   got=$(sha256sum "zeroseal-${n}x64.efi" | cut -d' ' -f1)
@@ -123,6 +123,11 @@ for n in shim grub; do
   [ "$got" = "$want" ] || { echo "$n sha256 不符："; echo "  复现：$got"; echo "  声明：$want"; exit 1; }
   echo "$n: $got ✓"
 done
+# stub 同样从 snapshot 抽，不读宿主机的 systemd-boot-efi —— 那份随 apt 升级会变，
+# 且验证者的版本跟我们不同就必然对不上。它的字节原样进 UKI，所以必须钉死。
+# 没有 stub_sha256 可比，它的正确性由下一步的 uki_sha256 兜住。
+./build-stub.sh
+echo "stub: $(sha256sum "$STUB" | cut -d' ' -f1) ✓"
 
 echo "=== [3/5] mkosi 复现构建 ==="
 ( . ~/mkosi-venv/bin/activate && mkosi --force build 2>&1 | tail -3 )
@@ -136,7 +141,7 @@ CMDLINE="systemd.verity=1 roothash=$RH systemd.verity_root_data=$DATA systemd.ve
 ukify build --linux=zeroseal.vmlinuz --initrd=zeroseal.initrd --cmdline="$CMDLINE" --stub="$STUB" --output=zeroseal.efi >/dev/null
 UKI=$(sha256sum zeroseal.efi | cut -d' ' -f1)
 [ "$UKI" = "$(j uki_sha256)" ] \
-  || { echo "UKI sha256 不符："; echo "  复现：$UKI"; echo "  声明：$(j uki_sha256)"; echo "  （stub 版本不同是最常见原因，见 README 的部署常量一节）"; exit 1; }
+  || { echo "UKI sha256 不符："; echo "  复现：$UKI"; echo "  声明：$(j uki_sha256)"; echo "  （stub 已由 build-stub.sh 钉死，若这里不符，查 ukify 版本）"; exit 1; }
 echo "UKI: $UKI ✓"
 
 echo "=== [5/5] 期望 RTMR ==="
