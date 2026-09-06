@@ -207,3 +207,52 @@ RTMR2 相等 → cmdline 相等 → roothash 相等 → rootfs 每一字节相�
 
 >   UKI 在 `RTMR2` 里只承担一个角色：装 cmdline。`rtmr2.py` 拿它只为读 `.cmdline` 段，不对整个 UKI 文件算哈希。
 
+
+### 哪些寄存器复现得出来
+
+![tdx_measurement_registers_map](./README.assets/tdx_measurement_registers_map.svg)
+
+打 ✓ 的 `RTMR1` 和 `RTMR2` 就是上一节那些，verify.sh 能从公开材料造出来再算一遍。打 ✗ 的两个算不出来。
+
+`MRTD` 是 TD 建立那一刻由 TDX 模块对初始内存镜像逐页算出来的，而那份镜像的内容就是 TDVF 固件，一个 `.fd` 文件。`RTMR0` 记的是固件自身的配置与数据，输入同样在 `.fd` 里。要复现这两个值，先得拿到那份 `.fd`，而阿里云不提供。
+
+`measurements.jsonl` 里也记着这两个值，而那是部署当时从 quote 里读到的观测值，不是谁独立算出来的。拿它去跟 quote 比，等于拿 zeroseal 的说法去对 zeroseal 的说法。
+
+>   给这两个值找一个可信参照目前有两条路：开一台已知干净的阿里云同型号实例，把它 quote 里的值 pin 下来当基准（成本较高）；或者在固件那一层信任阿里云与 Intel。
+
+`RTMR3` 留给 OS 起来之后自己使用，这套部署没有用到，全零。
+
+于是有以下信任边界：
+
+| 这一层                        | 谁来保证             | 用户是否可验证 |
+| ----------------------------- | -------------------- | ------------------ |
+| 硬件是真 TDX，以及 TCB 的状态   | Intel 签名链         | 能，走标准 QVL     |
+| 固件（`MRTD`、`RTMR0`）       | 阿里云与 Intel       | 不能，缺 `.fd`     |
+| 启动链与 rootfs（`RTMR1`、`RTMR2`） | 本仓库的可复现构建 | 能                 |
+
+零信任在这里有一条明确的边界：固件那一层仍然要信阿里云和 Intel。
+
+### 部署常量
+
+跑出对不上的值时，未必是 zeroseal 掺了假。下面这些东西一旦不同，复现值就必然不同
+
+第一类，你自己机器上可能不一样的：
+
+| 常量       | 在哪                       | 不一致会怎样                        |
+| ---------- | -------------------------- | ----------------------------------- |
+| ukify 版本 | 宿主机的 `systemd-ukify` 包 | 拼出来的 UKI 不同，`[4/5]` 对不上   |
+| mkosi 版本 | 宿主机的 `~/mkosi-venv`     | 组出来的 rootfs 可能不同，`[3/5]` 对不上 |
+| CPU 架构   | 宿主机                     | tools 树是 amd64 的，非 x86_64 跑不起来，见「构建环境」 |
+
+>   TODO：这两个版本号目前都没有写进 `measurements.jsonl`，只在本文档里注明用 `systemd-ukify 255.4-1ubuntu8.17` 与 `mkosi 26`。要真正钉死，得给 `measurements.jsonl` 加字段。
+
+第二类，换一套部署就不成立的。拿这个验证器去验别人的机器，得连着改：
+
+| 常量                  | 在哪                                          | 为什么绑死在这套部署上                    |
+| --------------------- | --------------------------------------------- | ----------------------------------------- |
+| 盘的 by-id 路径       | `measurements.jsonl` 的 `verity_data_dev`、`verity_hash_dev` | 它们进 cmdline，因而进 `RTMR2`          |
+| MOK 未 enroll         | `rtmr2.py` 写死的 `MokListX`、`MokListTrusted` | 这台机器没做过 enroll，别的机器未必       |
+| `CCEL` 表             | `rtmr2.py` 顶部                               | 这套部署实测的五条事件值，只用来逐项打 `OK` |
+| 被验那一行的其余字段  | `measurements.jsonl`                          | gateway 的 repo 与 commit、Go 版本、tools 树、各项期望值 |
+
+>   盘的 by-id 路径是这里面最不显眼的一条。它是阿里云分配给云盘的序列号，写进 kernel cmdline 用来告诉 systemd 从哪块盘挂 verity。cmdline 整体进 `RTMR2`，所以换一台实例，哪怕软件一个字节没改，`RTMR2` 也是另一个值。
