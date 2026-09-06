@@ -10,7 +10,7 @@ ZeroSeal 的 TDX 远程证明验证器 / A verifier for ZeroSeal's TDX remote at
 
 ### 这是什么
 
-这个仓库包含一个 shell 脚本与脚本所用的一切配方，旨在让验证方在不需要信任，即零信任下确认 zeroseal 提供的中转服务正在运行的是[这套程序（以下简称 RPg）](https://github.com/Falicitas/zeroseal-gateway)，以及确认运行程序的完整 Linux OS。在你的 Linux 环境下运行 `./verify.sh`，将生成一个崭新的未挂载的 Linux OS，这个 OS 涵盖 RPg。最后我们利用可信执行环境（TEE）的能力，在零信任下让验证方确认 zeroseal 目前对外提供的服务的运行中的 OS 正是验证方自己独立手动生成的 OS。
+这个仓库包含一个 shell 脚本与脚本所用的一切配方，旨在让验证方在不需要信任，即零信任下确认 zeroseal 提供的中转服务正在运行的是 [zeroseal-gateway 这套程序（以下简称 gateway）](https://github.com/Falicitas/zeroseal-gateway)，以及确认运行程序的完整 Linux OS。在你的 Linux 环境下运行 `./verify.sh`，将生成一个崭新的未挂载的 Linux OS，这个 OS 涵盖 RPg。最后我们利用可信执行环境（TEE）的能力，在零信任下让验证方确认 zeroseal 目前对外提供的服务的运行中的 OS 正是验证方自己独立手动生成的 OS。
 
 ### 构建环境
 
@@ -70,7 +70,7 @@ cd zeroseal-verifier
 ./verify.sh            # 验最新发布的那一版
 ```
 
->   第一次跑要几十分钟，绝大部分时间在下包和 mkosi tools 树。将 mkosi tools 树固定并作为 release 分发的原因见后文「xxyy」。
+>   第一次跑要几十分钟，绝大部分时间在下包和 mkosi tools 树。将 mkosi tools 树固定并作为 release 分发的原因见后文「mkosi tools 树为什么被固定」。
 
 ### 输出结果
 
@@ -107,7 +107,7 @@ RTMR2 = …
 上面五项全部为 OK，说明 v0.2.1 的声明是可复现的。
 ```
 
-zeroseal 在发布后端服务时，会将那一版全部产物的哈希值写进仓库根目录的 `measurements.jsonl`，一版占一行。`./verify.sh` 不带参数时默认取最后一行，`./verify.sh v0.2.1` 则取指定版本的一行。总而言之，`measurements.jsonl` 聚合了自 zeroseal 提供服务以来所有版本的静态产物的离线度量值（在线度量值挑战见后面章节「xsgreg」）。这些值作为 zeroseal 宣称的「声明值」，与你本地离线构建的「复现值」进行比较。
+zeroseal 在发布后端服务时，会将那一版全部产物的哈希值写进仓库根目录的 `measurements.jsonl`，一版占一行。`./verify.sh` 不带参数时默认取最后一行，`./verify.sh v0.2.1` 则取指定版本的一行。总而言之，`measurements.jsonl` 聚合了自 zeroseal 提供服务以来所有版本的静态产物的离线度量值（在线度量值挑战见后文「在线挑战：从远端取 quote」）。这些值作为 zeroseal 宣称的「声明值」，与你本地离线构建的「复现值」进行比较。
 
 `[0/5]` 到 `[4/5]` 每步做同一件事：在你的机器上造出一类 Linux 系统所需的中间产物，计算哈希值，最后跟 `measurements.jsonl` 中的一行的对应字段做比较。相同打 ✓ 往下走，不同就当场停下，把「复现值」和「声明值」两个不同的值打印在终端上。
 
@@ -155,7 +155,7 @@ CPU 提供一组寄存器，并保证这组寄存器对软件只开放一个操�
 
 TDX 里这样的寄存器有四个，`RTMR0` 到 `RTMR3`。CPU 把它们连同 `MRTD` 和硬件身份放进一份数据结构，用一把出厂时经 Intel 认证的密钥签名。签过名的这份东西叫 quote，伪造它等于伪造 Intel 那条证书链。
 
->   quote 的签名验证是独立的一步，走标准的 Intel QVL 流程（PCK 证书链回溯到 Intel root CA），跟本仓库做的本地复现是两件事，见后文「xsgreg」。
+>   quote 的签名验证是独立的一步，走标准的 Intel QVL 流程（PCK 证书链回溯到 Intel root CA），跟本仓库做的本地复现是两件事，见后文「在线挑战：从远端取 quote」。
 
 到这里远端能对外暴露 quote 接口来证明「远端机器此时 CPU 寄存器是这几个值」。不过寄存器只有 48 字节，装的是哈希值，从 quote 看不出它跑的是什么内容。
 
@@ -256,3 +256,80 @@ RTMR2 相等 → cmdline 相等 → roothash 相等 → rootfs 每一字节相�
 | 被验那一行的其余字段  | `measurements.jsonl`                          | gateway 的 repo 与 commit、Go 版本、tools 树、各项期望值 |
 
 >   盘的 by-id 路径是这里面最不显眼的一条。它是阿里云分配给云盘的序列号，写进 kernel cmdline 用来告诉 systemd 从哪块盘挂 verity。cmdline 整体进 `RTMR2`，所以换一台实例，哪怕软件一个字节没改，`RTMR2` 也是另一个值。
+
+### mkosi tools 树为什么被固定
+
+`mkosi.tools` 是 mkosi 组 rootfs 时用的那套工具：apt、dpkg、mkfs.erofs、veritysetup 等等。它决定了 rootfs 里装进哪些包的哪些版本，换一棵树，`roothash` 就变。
+
+仓库里只有 `mkosi.tools.manifest`，一份 81 个包的清单。光有它复现不出同一棵树 —— 清单里 `snapshot` 和 `mirror` 都是 `null`，没有记录当时从哪个源、哪个时间点取的包。今天照着这份清单重装一遍，拿到的是今天的版本。
+
+所以树本身必须整棵发出来。它 330 MB，进不了 git，走 GitHub Release：
+
+```
+tools_url      https://github.com/Falicitas/zeroseal-verifier/releases/download/<版本>/mkosi.tools.tar.gz
+tools_sha256   694bd6ba…
+```
+
+两个字段都在 `measurements.jsonl` 的被验那一行里。`verify.sh` 的 `[0/5]` 先按 `tools_sha256` 校验再解压，不校验通过不往下走 —— 无论这份 tarball 是你自己从 Release 下的，还是脚本替你下的。
+
+>   `mkosi.conf` 里的 `Snapshot=` 管的是镜像里装什么包，跟 tools 树是两回事。tools 树是造镜像的工具，它自己没被 snapshot 钉住，只能靠哈希钉。
+
+### 在线挑战：从远端取 quote
+
+前面全部工作产出的是「复现值」。「声明值」要从远端那台正在跑的机器上取，端点是公开的，不需要 api key：
+
+```bash
+curl -s https://gw.zeroseal.cn/v1/attestation | jq
+```
+
+```json
+{
+  "version": 1,
+  "provider": "tdx_guest",
+  "quote": "…",
+  "collateral": { "tcb_info": …, "qe_identity": …, "pck_crl": …, "root_ca_crl": … }
+}
+```
+
+`quote` 就是前面说的那份签名报告，里面带着 `MRTD` 与 `RTMR0` 到 `RTMR3`。`collateral` 是验这份签名要用的 Intel 材料（TCB 信息、QE 身份、两份 CRL），一并给你，省得再去 Intel PCS 拉一趟。这些材料本身由 Intel 签名，从 TD 这里拿不影响可信度。
+
+拿到之后要做两件事：
+
+```
+① 验签       PCK 证书链回溯到 Intel root CA，走标准 QVL
+② 比对       quote 里的 RTMR1 / RTMR2 与 verify.sh [5/5] 打印的两个值
+```
+
+>   这两步的工具还没做，见「TODO」。现阶段 `verify.sh` 只做到打印复现值。
+
+#### 这份 quote 属于你这条连接
+
+还有一个问题没解决：你怎么知道拿到的 quote 来自你 TCP 连接的这台机器，而不是别处存储后重放到你手里，或者中间人从真 TD 那里转发过来的？
+
+quote 里有 64 字节可以由被证明方自己填的位置，叫 `report_data`。往里塞什么才能绑住「这条连接」，答案就是：塞一个只有这条 TLS 连接的两端才算得出、别人算不出的值。TLS 1.3 本身提供了这个东西，叫 EKM（RFC 5705 导出密钥材料）。
+
+服务端从它自己那条连接的 TLS 状态里导出 EKM，拼进 `report_data` 再去取 quote：
+
+```
+report_data = sha512( ekm(32) ‖ 预留 32 字节 )
+```
+
+你这边从同一条连接导出同一个 EKM，自己算一遍，跟 quote 里的 `report_data` 比。相等就说明这份 quote 是为你这条连接现做的。
+
+>   服务端绝不接受请求方传入 EKM，只从自己的 `ConnectionState` 里取。这一条是整个绑定成立的前提：一旦端点收外部传入的 ekm，中间节点就能拿它跟客户端那条会话的 ekm 去换 quote，冒充 TLS 终止在 TD 内部。
+
+### TODO
+
+verify-quote：把「在线挑战」那两步做成工具。
+
+```
+① 验签    PCK 证书链回溯到 Intel root CA，走标准 QVL，用端点一并返回的 collateral
+② 比对    quote 里的 RTMR1 / RTMR2 与 [5/5] 打印的复现值
+③ 校验    自己从这条 TLS 连接导出 EKM，算一遍 report_data，跟 quote 里的比
+```
+
+做完之后 `[5/5]` 也该从「打印」改成「断言」：`measurements.jsonl` 里已经记着 `rtmrs`，现在没有任何一步去读它。
+
+`MRTD` 与 `RTMR0` 怎么处理在这一步定：是接阿里云的远程证明服务，还是 pin 一台已知干净实例的值当基准，见「哪些寄存器复现得出来」。
+
+>   验签跑通后会暴露一件事：本部署当前的 TCB 状态是 `OutOfDate`。那是阿里云平台侧的 SVN 落后，不是这套部署的软件问题。到时候会在这里写清楚它的影响范围与我们的处置。
