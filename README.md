@@ -127,7 +127,7 @@ zeroseal 在发布后端服务时，会将那一版全部产物的哈希值写�
 
 五个 ✓ 合起来可以说明一件事：zeroseal 声明的每样产物，你能从公开的源码和配方自己造出来，且逐字节一致。这一步全程在你自己机器上离线构建，验的是「它公开出来的这套东西能否本地造得出来」。
 
-`[5/5]` 把前面造出来的产物按 TDX 规定的顺序算一遍，打印 `RTMR1` 和 `RTMR2`。两个值被拿去跟远端那台实时运行的机器签名报告里的对应值比。它们基于什么能够无信任证明远端在跑的内容和用户离线构建的内容是一致，见后文「远端如何证明自己在跑什么——可信执行计算」。
+`[5/5]` 把前面造出来的产物按 TDX 规定的顺序算一遍，打印 `RTMR1` 和 `RTMR2`。两个值被拿去跟远端那台实时运行的机器签名报告里的对应值比。它们基于什么能够无信任证明远端在跑的内容和用户离线构建的内容是一致，见后文「远端如何证明自己在跑什么」。
 
 ### 远端如何证明自己在跑什么
 
@@ -147,6 +147,12 @@ CPU 提供一组寄存器，并保证这组寄存器对软件只开放一个操�
 
 既然是软件自己往里写，被掉包的那一段代码为什么不能追加一个假哈希值？因为它要先拿到控制权才能执行，而给它控制权的是上一段代码 —— 上一段会先把它的真实字节度量进去。轮到它执行时，寄存器里已经写着它自己的哈希值。整条链的起点是 TD 建立那一刻由 TDX 模块算出的 `MRTD`，一路到覆盖 zeroseal 中转二进制服务的 RTMR2。
 
+![tdx_trust_chain_zoom_lens](./README.assets/tdx_trust_chain_zoom_lens.svg)
+
+>   TDX 模块本身的可信来源见下图
+>
+>   ![tdx_module_root_of_trust](./README.assets/tdx_module_root_of_trust.svg)
+
 TDX 里这样的寄存器有四个，`RTMR0` 到 `RTMR3`。CPU 把它们连同 `MRTD` 和硬件身份放进一份数据结构，用一把出厂时经 Intel 认证的密钥签名。签过名的这份东西叫 quote，伪造它等于伪造 Intel 那条证书链。
 
 >   quote 的签名验证是独立的一步，走标准的 Intel QVL 流程（PCK 证书链回溯到 Intel root CA），跟本仓库做的本地复现是两件事，见后文「xsgreg」。
@@ -162,3 +168,42 @@ TDX 里这样的寄存器有四个，`RTMR0` 到 `RTMR3`。CPU 把它们连同 `
 这点也说明用户使用的机器不需要有 TDX 能力的 CPU 芯片。Intel CPU 芯片仅作为一个防运维通过 ssh 篡改寄存器值的硬件（并对寄存器值的真实性作签名），对于系统的构建配方，以及顺序度量的配方等，都是可公开，也需要被公开，让用户在常规 Linux 环境就可完成复现。
 
 这条推理闭合的前提是构建可复现 —— 同样的源码和配方，在任何机器、任何时间都编出逐字节相同的产物。这也是为什么 `mkosi.conf` 里固定了 `Snapshot=`，`measurements.jsonl` 里固定了 `go_version` 与 `tools_sha256`。
+
+### RTMR1 与 RTMR2 度量了什么
+
+`RTMR1` 度量了启动链上三个可执行文件：shim、grub、kernel。`rtmr1.py` 对它们各算一个哈希，从全零开始按这个顺序叠出 `RTMR1`。
+
+>   这三个都是 UEFI 可执行文件（PE 格式），文件里自带一块放数字签名的区域，Secure Boot 使用它来验签。算哈希时跳过这块内容。UEFI 为此规定了一套叫 Authenticode 的算法：跳过 checksum 字段和证书表两处再算。`rtmr1.py` 用的是它。
+
+| 文件   | 来源                                                    |
+| ------ | ------------------------------------------------------- |
+| shim   | `build-grub-shim.sh` 从 `shim-signed` 包里取出的 `.efi` |
+| grub   | 同上，取自 `grub-efi-amd64-signed`                      |
+| kernel | mkosi 装进 rootfs 的内核包里的 vmlinuz                  |
+
+>   shim 和 grub 是 Canonical 签好名的二进制，本仓库不自己编译它们，仅从固定快照里取出来。快照日期固定在 `build-grub-shim.sh` 里，与 `mkosi.conf` 的 `Snapshot=` 保持一致。
+
+`RTMR2` 度量了 bootloader 读到的配置和数据，五条事件按固定顺序追加：
+
+| 事件             | 内容                                       |
+| ---------------- | ------------------------------------------ |
+| `MokList`        | shim 信任的证书列表，从 shim 自己的 `.vendor_cert` 段重建 |
+| `MokListX`       | 吊销列表，未 enroll 过 MOK 时是固定的空占位 |
+| `MokListTrusted` | 同上，固定值 `sha384(0x01)`                |
+| `LoadOptions`    | kernel cmdline，转成 UTF-16-LE 后算哈希    |
+| `initrd`         | initrd 文件的 sha384                       |
+
+>   `Mok` 是 Machine Owner Key，shim 留给机器主人的口子：往 Secure Boot 的信任列表里加自己的证书，加这个动作叫 enroll。这台机器没做过 enroll，所以前三条是固定值。换成 enroll 过的机器，这三条会变，复现值跟着不同。
+
+rootfs 有几百 MB，寄存器只有 48 字节。zeroseal 利用 dm-verity 把 rootfs 将底层数据块自下而上组织成一棵哈希树，树根为一个 32 字节的哈希值 `roothash`。对任何数据块进行修改一个字节，树根值都会变化。`roothash` 写入了被度量的 kernel cmdline。cmdline 再和 kernel、initrd 一起打包成一个 EFI 文件，即 UKI，是 `[4/5]` 复现的目标。`rtmr2.py` 从 UKI 里取出 cmdline，算成 `LoadOptions`。这条信任链在验证时，如果反过来看：
+
+```
+RTMR2 相等 → cmdline 相等 → roothash 相等 → rootfs 每一字节相等 → gateway 二进制相等
+```
+
+对照 `[0/5]` 到 `[5/5]` 就是：`[3/5]` 造出 rootfs 并得到 `roothash`，`[4/5]` 把它写进 cmdline 打入 UKI，`[5/5]` 从 UKI 里读回来算 `RTMR2`。
+
+>   这条链在整个运行期都成立。cmdline 里带着 `systemd.verity_root_options=panic-on-corruption`，运行期间读到任何一个块跟哈希树对不上，内核当场 panic。
+
+>   UKI 在 `RTMR2` 里只承担一个角色：装 cmdline。`rtmr2.py` 拿它只为读 `.cmdline` 段，不对整个 UKI 文件算哈希。
+
