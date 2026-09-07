@@ -6,12 +6,14 @@ X509_GUID      = bytes.fromhex("a159c0a5e494a74a87b5ab155c2bf072")   # UEFI 规�
 SHA256_GUID    = bytes.fromhex("2616c4c14c509240aca941f936934328")   # UEFI 规范 EFI_CERT_SHA256_GUID
 SHIM_LOCK_GUID = bytes.fromhex("50ab5d6046e00043abb63dd810dd8b23")   # shim 源码 SHIM_LOCK_GUID
 
+# 只有跨版本不变的三项写死:MokList 由 shim 的 vendor_cert 决定,另两个是未 enroll
+# 的 shim 默认值。LoadOptions 和 initrd 不在表里 —— cmdline 含 roothash、initrd 是
+# 每次构建的产物,写死等于每发一版就过期一次。它们的正确性由 uki_sha256 兜住:两者
+# 都是 UKI 的输入,UKI 对上了它们就对。
 CCEL = {
     "MokList":        "053357ea65185f010b8caa1fc265cfd5e80c7cc781254fa3f1e5ea9d345a87003cf761472a2f0423f15297f55cfe248f",
     "MokListX":       "80ee2571334a57bf90238d21964447e542079d4805fa87887817a97dcb720906683a09b1ac634c76c0c0be1177f76110",
     "MokListTrusted": "8d2ce87d86f55fcfab770a047b090da23270fa206832dfea7e0c946fff451f819add242374be551b0d6318ed6c7d41d8",
-    "LoadOptions":    "914d914a645fc37c4d2d50ddda67c039b5b78eba6946bb838b0b04fb1908dc378cb166b59aeb5da70dc914a7ae5c311e",
-    "initrd":         "66b4763797e510fb9fcc0fc104b31644bde8b5ec33e347a61ba693146fd03e5277314beee2a3ce1e94971af0bb480305",
 }
 
 def sec(pe, name):
@@ -56,6 +58,7 @@ seq = [("MokList", moklist), ("MokListX", moklistx), ("MokListTrusted", moklistt
        ("LoadOptions", loadopts), ("initrd", initrd_d)]
 r = b"\x00" * 48
 for name, d in seq:
-    print(f"{name:14s} {d}  {'OK' if d == CCEL[name] else '!! 不符'}")
+    want = CCEL.get(name)
+    print(f"{name:14s} {d}  {('OK' if d == want else '!! 不符') if want else '(随版本变，由 uki_sha256 兜住)'}")
     r = hashlib.sha384(r + bytes.fromhex(d)).digest()
 print("RTMR2 =", r.hex())

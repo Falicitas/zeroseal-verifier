@@ -254,7 +254,7 @@ RTMR2 相等 → cmdline 相等 → roothash 相等 → rootfs 每一字节相�
 | --------------------- | --------------------------------------------- | ----------------------------------------- |
 | 盘的 by-id 路径       | `measurements.jsonl` 的 `verity_data_dev`、`verity_hash_dev` | 它们进 cmdline，因而进 `RTMR2`          |
 | MOK 未 enroll         | `rtmr2.py` 写死的 `MokListX`、`MokListTrusted` | 这台机器没做过 enroll，别的机器未必       |
-| `CCEL` 表             | `rtmr2.py` 顶部                               | 这套部署实测的五条事件值，只用来逐项打 `OK` |
+| `CCEL` 表             | `rtmr2.py` 顶部                               | 这套部署实测的三条事件值，只用来逐项打 `OK` |
 | 被验那一行的其余字段  | `measurements.jsonl`                          | gateway 的 repo 与 commit、Go 版本、tools 树、各项期望值 |
 
 >   盘的 by-id 路径是这里面最不显眼的一条。它是阿里云分配给云盘的序列号，写进 kernel cmdline 用来告诉 systemd 从哪块盘挂 verity。cmdline 整体进 `RTMR2`，所以换一台实例，哪怕软件一个字节没改，`RTMR2` 也是另一个值。
