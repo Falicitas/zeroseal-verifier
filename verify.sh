@@ -138,10 +138,13 @@ echo "roothash: $RH ✓"
 
 echo "=== [4/5] 复现 UKI ==="
 CMDLINE="systemd.verity=1 roothash=$RH systemd.verity_root_data=$DATA systemd.verity_root_hash=$HASH systemd.verity_root_options=panic-on-corruption console=tty0 console=ttyS0,115200n8 net.ifnames=0 nvme_core.io_timeout=4294967295 iommu=pt"
-ukify build --linux=zeroseal.vmlinuz --initrd=zeroseal.initrd --cmdline="$CMDLINE" --stub="$STUB" --output=zeroseal.efi >/dev/null
+# --os-release 必须显式给。不给的话 ukify 把宿主机的 /etc/os-release 塞进 .osrel，
+# 构建机的 Ubuntu 小版本号就进了 UKI —— 四个输入一模一样，24.04.2 和 24.04.4 的
+# 机器却打出不同的 UKI。取镜像里这份，它跟 rootfs 一起被上一步的 roothash 锚定。
+ukify build --linux=zeroseal.vmlinuz --initrd=zeroseal.initrd --cmdline="$CMDLINE" --stub="$STUB" --os-release=@zeroseal/usr/lib/os-release --output=zeroseal.efi >/dev/null
 UKI=$(sha256sum zeroseal.efi | cut -d' ' -f1)
 [ "$UKI" = "$(j uki_sha256)" ] \
-  || { echo "UKI sha256 不符："; echo "  复现：$UKI"; echo "  声明：$(j uki_sha256)"; echo "  （stub 已由 build-stub.sh 钉死，若这里不符，查 ukify 版本）"; exit 1; }
+  || { echo "UKI sha256 不符："; echo "  复现：$UKI"; echo "  声明：$(j uki_sha256)"; echo "  （stub 和 .osrel 都已钉死，若这里不符，查 ukify 是不是又从宿主机取了什么）"; exit 1; }
 echo "UKI: $UKI ✓"
 
 echo "=== [5/5] 期望 RTMR ==="

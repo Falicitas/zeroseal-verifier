@@ -31,13 +31,14 @@ ZeroSeal 的 TDX 远程证明验证器 / A verifier for ZeroSeal's TDX remote at
 
 ```bash
 # Debian / Ubuntu
-apt install -y git jq curl python3-venv python3-pefile systemd-ukify
+apt update
+apt install -y git jq curl python3-venv python3-pefile
 
 # Arch
-pacman -S --needed git jq curl systemd-ukify python-pefile
+pacman -Syu --needed git jq curl python-pefile
 
 # Fedora
-dnf install -y git jq curl systemd-ukify python3-pefile
+dnf install --refresh -y git jq curl python3-pefile
 ```
 
 | 包             | 作用                                                     |
@@ -53,7 +54,8 @@ dnf install -y git jq curl systemd-ukify python3-pefile
 ```bash
 # mkosi 装进 venv，verify.sh 默认找 ~/mkosi-venv
 python3 -m venv ~/mkosi-venv
-~/mkosi-venv/bin/pip install mkosi==26
+~/mkosi-venv/bin/pip install 'git+https://github.com/systemd/mkosi.git@v26'
+~/mkosi-venv/bin/mkosi --version    # 应输出 mkosi 26
 
 # Go 版本要跟被验那一行的 go_version 一致，对不上 verify.sh 直接停
 curl -fL https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | tar -C /usr/local -xz
