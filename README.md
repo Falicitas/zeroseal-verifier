@@ -322,16 +322,27 @@ report_data = sha512( ekm(32) ‖ 预留 32 字节 )
 
 ### TODO
 
-verify-quote：把「在线挑战」那两步做成工具。
+verify-quote：把「在线挑战」那三步做成工具。①② 已实现，③ 待做。
 
 ```
-① 验签    PCK 证书链回溯到 Intel root CA，走标准 QVL，用端点一并返回的 collateral
-② 比对    quote 里的 RTMR1 / RTMR2 与 [5/5] 打印的复现值
-③ 校验    自己从这条 TLS 连接导出 EKM，算一遍 report_data，跟 quote 里的比
+① 验签    PCK 证书链回溯到 Intel root CA，走标准 QVL。collateral 自己去 Intel
+          PCS 拉，不用端点给的那份——那是让被验方提供自己的证据链
+② 比对    quote 里的 RTMR1 / RTMR2 与 [5/5] 复现出的值（reproduced.json）
+③ 校验    自己从这条 TLS 连接导出 EKM，算一遍 report_data，跟 quote 里的比  ← 待做
 ```
 
-做完之后 `[5/5]` 也该从「打印」改成「断言」：`measurements.jsonl` 里已经记着 `rtmrs`，现在没有任何一步去读它。
+它在公开的 gateway repo 里，`verify.sh` 跑完后 `gateway-src/` 还在，就地编出来跑。注意
+`verify.sh` 会把 `gateway-src/` checkout 到**被验那一版**的 commit，所以你编出来的验证器
+和你正在验的 gateway 来自同一次可复现构建 —— 代价是它只能随发布演进，`v0.2.1` 的树里
+还没有 verify-quote（它是之后才写的），下一版起可用。
 
-`MRTD` 与 `RTMR0` 怎么处理在这一步定：是接阿里云的远程证明服务，还是 pin 一台已知干净实例的值当基准，见「哪些寄存器复现得出来」。
+```bash
+go build -C gateway-src/gateway -o ../../verify-quote ./cmd/verify-quote
+./verify-quote -allow-tcb-status OutOfDate
+```
+
+退出码 `0` 是完整验证通过，`2` 是降级——没有 `reproduced.json` 时它改比 `measurements.jsonl`，那是 zeroseal 自己的声明，只能说明「远端跟我们说的一致」，证明不了「我们说的是对的」。
+
+`MRTD` 与 `RTMR0` 不追独立验证，按信任边界接受，见「哪些寄存器复现得出来」。
 
 >   验签跑通后会暴露一件事：本部署当前的 TCB 状态是 `OutOfDate`。那是阿里云平台侧的 SVN 落后，不是这套部署的软件问题。到时候会在这里写清楚它的影响范围与我们的处置。
