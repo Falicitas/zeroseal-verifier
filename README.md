@@ -94,7 +94,7 @@ stub: … ✓
 roothash: … ✓
 === [4/5] 复现 UKI ===
 UKI: … ✓
-=== [5/5] 期望 RTMR ===
+=== [5/5] 复现 RTMR ===
 shim   …
 grub   …
 kernel …
@@ -102,16 +102,19 @@ RTMR1 = …
 MokList        …  OK
 MokListX       …  OK
 MokListTrusted …  OK
-LoadOptions    …  OK
-initrd         …  OK
+LoadOptions    …  (随版本变，由 uki_sha256 兜住)
+initrd         …  (随版本变，由 uki_sha256 兜住)
 RTMR2 = …
 
-上面五项全部为 OK，说明 v0.2.1 的声明是可复现的。
+RTMR1: … ✓
+RTMR2: … ✓
+
+每一项都对上了，说明 v0.2.1 的声明是可复现的。复现值已写入 reproduced.json。
 ```
 
 zeroseal 在发布后端服务时，会将那一版全部产物的哈希值写进仓库根目录的 `measurements.jsonl`，一版占一行。`./verify.sh` 不带参数时默认取最后一行，`./verify.sh v0.2.1` 则取指定版本的一行。总而言之，`measurements.jsonl` 聚合了自 zeroseal 提供服务以来所有版本的静态产物的离线度量值（在线度量值挑战见后文「在线挑战：从远端取 quote」）。这些值作为 zeroseal 宣称的「声明值」，与你本地离线构建的「复现值」进行比较。
 
-`[0/5]` 到 `[4/5]` 每步做同一件事：在你的机器上造出一类 Linux 系统所需的中间产物，计算哈希值，最后跟 `measurements.jsonl` 中的一行的对应字段做比较。相同打 ✓ 往下走，不同就当场停下，把「复现值」和「声明值」两个不同的值打印在终端上。
+`[0/5]` 到 `[5/5]` 每步做同一件事：在你的机器上造出一类 Linux 系统所需的中间产物，计算哈希值，最后跟 `measurements.jsonl` 中的一行的对应字段做比较。相同打 ✓ 往下走，不同就当场停下，把「复现值」和「声明值」两个不同的值打印在终端上。
 
 | 步骤  | 在你机器上造出的产物    | 比较的字段               |
 | ----- | ------------------------ | ----------------------------- |
@@ -120,16 +123,17 @@ zeroseal 在发布后端服务时，会将那一版全部产物的哈希值写�
 | [2/5] | shim、grub、stub         | `shim_sha256`、`grub_sha256`  |
 | [3/5] | rootfs 的 erofs 与 verity | `roothash`                   |
 | [4/5] | UKI                      | `uki_sha256`                  |
+| [5/5] | RTMR1、RTMR2             | `rtmrs[1]`、`rtmrs[2]`        |
 
 >   stub 没有自己的字段。它作为构建 UKI 的输入之一，`[4/5]` 对上就说明它是对的。
 
 >   `[1/5]` 如果选择提供编好的二进制，零信任拓展不到人类可读的 go 语言项目。即零信任将退化为：你需要信任我们提供的二进制没有中转掺水。所以 gateway 二进制不进本仓库。`[1/5]` 是现场从 `gateway_repo` 的 `gateway_commit` clone 下来并完成 Go 编译的。
 
->   `MokList` 那五行末尾的 `OK`，是逐个事件跟 `rtmr2.py` 顶部一张实测表对照，只用来定位是哪一项对不上，不参与 `RTMR2` 的计算。
+>   `MokList` 三行末尾的 `OK`，是逐个事件跟 `rtmr2.py` 顶部一张实测表对照，只用来定位是哪一项对不上，不参与 `RTMR2` 的计算。`LoadOptions` 与 `initrd` 不在那张表里——它们每版都变，写死等于每发一版就过期一次，其正确性由 `uki_sha256` 兜住。
 
-五个 ✓ 合起来可以说明一件事：zeroseal 声明的每样产物，你能从公开的源码和配方自己造出来，且逐字节一致。这一步全程在你自己机器上离线构建，验的是「它公开出来的这套东西能否本地造得出来」。
+六个 ✓ 合起来可以说明一件事：zeroseal 声明的每样产物，你能从公开的源码和配方自己造出来，且逐字节一致。这一步全程在你自己机器上离线构建，验的是「它公开出来的这套东西能否本地造得出来」。
 
-`[5/5]` 把前面造出来的产物按 TDX 规定的顺序算一遍，打印 `RTMR1` 和 `RTMR2`。两个值被拿去跟远端那台实时运行的机器签名报告里的对应值比。它们基于什么能够无信任证明远端在跑的内容和用户离线构建的内容是一致，见后文「远端如何证明自己在跑什么」。
+`[5/5]` 把前面造出来的产物按 TDX 规定的顺序算一遍，得出 `RTMR1` 和 `RTMR2`，跟 `measurements.jsonl` 里声明的比对，并把复现值写进 `reproduced.json`。两个值随后被拿去跟远端那台实时运行的机器签名报告里的对应值比。它们基于什么能够无信任证明远端在跑的内容和用户离线构建的内容是一致，见后文「远端如何证明自己在跑什么」。
 
 ### 远端如何证明自己在跑什么
 
@@ -302,7 +306,7 @@ curl -s https://gw.zeroseal.cn/v1/attestation | jq
 ② 比对       quote 里的 RTMR1 / RTMR2 与 verify.sh [5/5] 打印的两个值
 ```
 
->   这两步的工具还没做，见「TODO」。现阶段 `verify.sh` 只做到打印复现值。
+>   这两步由 verify-quote 实现，用法见「TODO」一节。`verify.sh` 的 `[5/5]` 会把复现值落进 `reproduced.json`，verify-quote 读它。
 
 #### 这份 quote 属于你这条连接
 
@@ -322,13 +326,14 @@ report_data = sha512( ekm(32) ‖ 预留 32 字节 )
 
 ### TODO
 
-verify-quote：把「在线挑战」那三步做成工具。①② 已实现，③ 待做。
+verify-quote：把「在线挑战」那三步做成了工具，三步都已实现。
 
 ```
 ① 验签    PCK 证书链回溯到 Intel root CA，走标准 QVL。collateral 自己去 Intel
           PCS 拉，不用端点给的那份——那是让被验方提供自己的证据链
 ② 比对    quote 里的 RTMR1 / RTMR2 与 [5/5] 复现出的值（reproduced.json）
-③ 校验    自己从这条 TLS 连接导出 EKM，算一遍 report_data，跟 quote 里的比  ← 待做
+③ 校验    自己从这条 TLS 连接导出 EKM，算一遍 report_data，跟 quote 里的比。
+          这一步排在 ② 之前跑——quote 属不属于眼前这条连接，是后面所有比对的前提
 ```
 
 它在公开的 gateway repo 里，`verify.sh` 跑完后 `gateway-src/` 还在，就地编出来跑。注意
