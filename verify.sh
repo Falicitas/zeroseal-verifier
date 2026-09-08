@@ -147,9 +147,42 @@ UKI=$(sha256sum zeroseal.efi | cut -d' ' -f1)
   || { echo "UKI sha256 不符："; echo "  复现：$UKI"; echo "  声明：$(j uki_sha256)"; echo "  （stub 和 .osrel 都已钉死，若这里不符，查 ukify 是不是又从宿主机取了什么）"; exit 1; }
 echo "UKI: $UKI ✓"
 
-echo "=== [5/5] 期望 RTMR ==="
-python3 rtmr1.py zeroseal-shimx64.efi zeroseal-grubx64.efi zeroseal.vmlinuz
-python3 rtmr2.py zeroseal-shimx64.efi zeroseal.efi zeroseal.initrd
+echo "=== [5/5] 复现 RTMR ==="
+# 这一步以前只打印，对不对全靠人去 measurements.jsonl 里肉眼找 —— 前面每一步都在
+# 自动比对，唯独最后一步退化成打印，那是整条链上唯一没闭合的接缝。measurements.jsonl
+# 里一直记着 rtmrs，只是没有任何一步去读它。
+R1_OUT=$(python3 rtmr1.py zeroseal-shimx64.efi zeroseal-grubx64.efi zeroseal.vmlinuz)
+R2_OUT=$(python3 rtmr2.py zeroseal-shimx64.efi zeroseal.efi zeroseal.initrd)
+printf '%s\n%s\n' "$R1_OUT" "$R2_OUT"
+
+# 末行形如 "RTMR1 = <96 hex>"。取不到就是脚本输出格式变了，别默默跳过比对。
+RTMR1=$(printf '%s' "$R1_OUT" | sed -n 's/^RTMR1 = //p')
+RTMR2=$(printf '%s' "$R2_OUT" | sed -n 's/^RTMR2 = //p')
+[ -n "$RTMR1" ] && [ -n "$RTMR2" ] \
+  || { echo "rtmr1.py / rtmr2.py 没打印出 RTMR 值 —— 输出格式跟 verify.sh 对不上了"; exit 1; }
+
 echo
-echo "上面五项都对上了，说明 $VERSION 的声明是可复现的。"
-echo "↑ RTMR1/RTMR2 与 prover 的 quote 比对（下一步 verify-quote 接验签 + 逐项）。"
+[ "$RTMR1" = "$(j 'rtmrs[1]')" ] \
+  || { echo "RTMR1 不符："; echo "  复现：$RTMR1"; echo "  声明：$(j 'rtmrs[1]')"; exit 1; }
+echo "RTMR1: $RTMR1 ✓"
+[ "$RTMR2" = "$(j 'rtmrs[2]')" ] \
+  || { echo "RTMR2 不符："; echo "  复现：$RTMR2"; echo "  声明：$(j 'rtmrs[2]')"; exit 1; }
+echo "RTMR2: $RTMR2 ✓"
+
+# 落盘给 verify-quote 用。它要拿「这台机器复现出来的值」去跟远端 quote 比，
+# 而不是拿 measurements.jsonl —— 那样两边都是 zeroseal 自己的说法，等于没验。
+# 带上 roothash 和 UKI 是为了出问题时能一眼看出复现到哪一步偏了。
+cat > reproduced.json <<JSON
+{
+  "version":       "$VERSION",
+  "rtmr1":         "$RTMR1",
+  "rtmr2":         "$RTMR2",
+  "roothash":      "$RH",
+  "uki_sha256":    "$UKI",
+  "reproduced_at": "$(date -Iseconds)"
+}
+JSON
+
+echo
+echo "每一项都对上了，说明 $VERSION 的声明是可复现的。复现值已写入 reproduced.json。"
+echo "↑ 剩下的是「远端此刻在跑它」—— verify-quote 拿这份复现值去比对 prover 的 quote。"

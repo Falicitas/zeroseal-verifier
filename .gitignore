@@ -18,3 +18,6 @@ zeroseal-shimx64.efi
 zeroseal-grubx64.efi
 zeroseal-linuxx64.efi.stub
 mkosi.tools.tar.gz.json
+
+# verify.sh 落的复现值，给 verify-quote 读。每次跑都会重写。
+reproduced.json
